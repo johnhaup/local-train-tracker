@@ -12,40 +12,46 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import MapView, { Camera, Marker } from "react-native-maps";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import MapView, { Camera, Marker, Region } from "react-native-maps";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { FontAwesome5 } from "@expo/vector-icons";
 
-const MILE_RADIUS = 100;
-const METER_RADIUS = MILE_RADIUS * 1609.34;
-const INTERVAL = 10000;
+const INTERVAL = 1000;
 
 export default function App() {
   const _mapRef = useRef<MapView>(null);
   const _intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const _prevTrainsLength = useRef(0);
   const [response, request] = useForegroundPermissions();
   const [userCoords, setUserCoords] = useState<{
     latitude: number;
     longitude: number;
   } | null>(null);
   const [trains, setTrains] = useState<Train[]>([]);
-
-  console.log("trains", trains);
-
+  ``;
   useEffect(() => {
     if (userCoords && !_intervalRef.current) {
       const fetchTrains = async () => {
         const trains = await fetchAllTrains();
-        const trainsWithinBounds = Object.values(trains)
+        const sortedTrains = Object.values(trains)
           .flat()
-          .filter(({ lat, lon }) => {
-            return haversine(
-              [userCoords.latitude, userCoords.longitude],
-              [lat, lon],
-              { unit: "mile", format: "[lat,lon]", threshold: MILE_RADIUS }
+          .sort(({ lat: latA, lon: lonA }, { lat: latB, lon: lonB }) => {
+            return (
+              haversine(
+                [userCoords.latitude, userCoords.longitude],
+                [latA, lonA],
+                { unit: "mile", format: "[lat,lon]" }
+              ) -
+              haversine(
+                [userCoords.latitude, userCoords.longitude],
+                [latB, lonB],
+                { unit: "mile", format: "[lat,lon]" }
+              )
             );
           });
 
-        setTrains(trainsWithinBounds);
+        setTrains(sortedTrains);
       };
 
       fetchTrains();
@@ -81,13 +87,23 @@ export default function App() {
   const centerOnUser = useCallback(async () => {
     const location = await getCurrentPositionAsync();
     setUserCoords(location.coords);
-    zoomToCoordinate(
-      {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      },
-      10000
-    );
+    if (!trains.length) {
+      zoomToCoordinate(
+        {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        },
+        10000
+      );
+    } else if (trains.length) {
+      _mapRef.current?.fitToSuppliedMarkers(
+        trains.slice(0, 5).map((train) => train.trainID),
+        {
+          edgePadding: { top: 100, right: 100, bottom: 100, left: 100 },
+          animated: true,
+        }
+      );
+    }
   }, []);
 
   const requestPermission = useCallback(async () => {
@@ -109,6 +125,15 @@ export default function App() {
     }
   }, []);
 
+  const { top, bottom } = useSafeAreaInsets();
+
+  useEffect(() => {
+    if (!_prevTrainsLength.current && trains.length) {
+      _prevTrainsLength.current = trains.length;
+      fitToAllTrains();
+    }
+  }, []);
+
   const trainMarkers = useMemo(
     () =>
       trains.map((train) => (
@@ -117,8 +142,8 @@ export default function App() {
           key={train.trainID}
           coordinate={{ latitude: train.lat, longitude: train.lon }}
           title={`Train ${train.trainNum}`}
-          onPress={() => {
-            console.log("pressed", train.trainNum);
+          description={`Heading ${train.heading} to ${train.destName}`}
+          onSelect={() => {
             zoomToCoordinate({ latitude: train.lat, longitude: train.lon });
           }}
         >
@@ -130,7 +155,6 @@ export default function App() {
 
   const fitToAllTrains = useCallback(() => {
     if (_mapRef.current) {
-      console.log("fitting to all trains");
       _mapRef.current.fitToElements({ animated: true });
     }
   }, []);
@@ -139,29 +163,50 @@ export default function App() {
     <View style={styles.container}>
       <MapView
         ref={_mapRef}
-        style={styles.map}
+        style={[styles.map, { paddingTop: top, paddingBottom: bottom }]}
         cameraZoomRange={{
           animated: true,
         }}
         showsUserLocation={response?.status === "granted"}
         userInterfaceStyle="light"
+        onMapReady={fitToAllTrains}
       >
         {trainMarkers}
-        {trainMarkers.length ? (
-          <View style={{ position: "absolute", top: 0, left: 0 }}>
-            <Text
-              style={{
-                padding: 10,
-                backgroundColor: "rgba(0,0,0,0.5)",
-                color: "white",
-              }}
-              onPress={fitToAllTrains}
-            >
-              {`Fit to All Trains (${trains.length})`}
-            </Text>
-          </View>
-        ) : null}
       </MapView>
+      <View style={{ position: "absolute", top: top + 8, left: 8 }}>
+        <View
+          style={{
+            backgroundColor: "rgba(0,0,0,0.5)",
+            borderRadius: 8,
+            flexDirection: "row",
+          }}
+        >
+          {trainMarkers.length ? (
+            <TouchableOpacity
+              onPress={fitToAllTrains}
+              style={{ paddingHorizontal: 16, paddingVertical: 12 }}
+              activeOpacity={0.8}
+            >
+              <Text
+                style={{
+                  color: "white",
+                }}
+              >
+                {`🚂 (${trains.length})`}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          <View style={{ width: 1, backgroundColor: "white" }} />
+          <TouchableOpacity
+            onPress={centerOnUser}
+            style={{ paddingHorizontal: 16, paddingVertical: 12 }}
+            activeOpacity={0.8}
+          >
+            <View style={{ height: 2 }} />
+            <FontAwesome5 name="location-arrow" size={16} color="white" />
+          </TouchableOpacity>
+        </View>
+      </View>
     </View>
   );
 }
