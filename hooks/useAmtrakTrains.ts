@@ -1,9 +1,8 @@
 import { useAppState } from "@react-native-community/hooks";
 import { fetchAllTrains } from "amtrak";
-import { Train } from "amtrak/dist/types";
+import { Train, TrainResponse } from "amtrak/dist/types";
 import haversine from "haversine";
-import isEqual from "lodash/isEqual";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const INTERVAL = 10000;
 
@@ -11,11 +10,26 @@ export function useAmtrakTrains(
   userCoords: { latitude: number; longitude: number } | null
 ) {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const [trains, setTrains] = useState<Train[]>([]);
+  const [response, setResponse] = useState<TrainResponse | null>(null);
   const appState = useAppState();
 
-  const sortTrains = useCallback(
-    (trains: Train[]) => {
+  const fetchTrains = useCallback(async () => {
+    try {
+      const freshResponse = await fetchAllTrains();
+      setResponse(freshResponse);
+    } catch (error) {
+      console.error(error);
+    }
+  }, []);
+
+  const trains = useMemo(() => {
+    if (!response) {
+      return [];
+    }
+
+    const allTrains = Object.values(response).flat();
+
+    const sortTrains = (trains: Train[]) => {
       if (!userCoords) {
         console.warn("No user coordinates provided. Skipping sorting.");
         return trains;
@@ -44,23 +58,12 @@ export function useAmtrakTrains(
           return distA - distB;
         }
       );
-    },
-    [userCoords]
-  );
+    };
 
-  const fetchTrains = useCallback(async () => {
-    try {
-      const response = await fetchAllTrains();
-      const allTrains = Object.values(response).flat();
-      const sortedTrains = sortTrains(allTrains);
+    const sortedTrains = sortTrains(allTrains);
 
-      if (!isEqual(sortedTrains, trains)) {
-        setTrains(sortedTrains);
-      }
-    } catch (error) {
-      console.error(error);
-    }
-  }, [userCoords]);
+    return sortedTrains;
+  }, [response, userCoords]);
 
   const clearActiveInterval = useCallback(() => {
     if (intervalRef.current) {

@@ -10,7 +10,6 @@ export default function App() {
   const _mapRef = useRef<MapView>(null);
   const _prevTrainsLength = useRef(0);
   const { top, bottom } = useSafeAreaInsets();
-
   const userCoords = useUserCoordinates();
   const trains = useAmtrakTrains(userCoords);
 
@@ -36,7 +35,7 @@ export default function App() {
         }
       );
     }
-  }, []);
+  }, [trains.length, userCoords]);
 
   useEffect(() => {
     if (!_prevTrainsLength.current && trains.length) {
@@ -45,19 +44,17 @@ export default function App() {
     }
   }, []);
 
-  const trainMarkers = useMemo(
-    () =>
-      trains.map((train) => (
-        <TrainMarker
-          key={train.trainID}
-          train={train}
-          onSelect={() => {
-            zoomToCoordinate({ latitude: train.lat, longitude: train.lon });
-          }}
-        />
-      )),
-    [trains]
-  );
+  const trainMarkers = useMemo(() => {
+    return trains.map((train) => (
+      <TrainMarker
+        key={train.trainID}
+        train={train}
+        onSelect={() => {
+          zoomToCoordinate({ latitude: train.lat, longitude: train.lon });
+        }}
+      />
+    ));
+  }, [trains]);
 
   const fitToAllTrains = useCallback(() => {
     if (_mapRef.current) {
